@@ -6,6 +6,7 @@ from ..models import AnalysisRun, Experiment
 from ..utils.serialize import record
 from .audit_service import log
 queue=Redis.from_url(REDIS_URL,decode_responses=True)
+identity_queue=Redis.from_url(REDIS_URL,decode_responses=True)
 def list_runs(db):
     return [record(x) for x in db.query(AnalysisRun).order_by(AnalysisRun.id.desc())]
 def get_run(db,rid):
@@ -20,11 +21,44 @@ def enqueue(db,eid,user):
     except Exception:
         row.status="failed"; row.error="队列不可用，请稍后重新运行"; db.commit(); raise HTTPException(503,row.error)
     return record(row)
+
+def _identity_columns(run):
+    identity=(run.result or {}).get("identity") or {}
+    provenance=identity.get("version_summary") or {}
+    return [
+        provenance.get("number",""),
+        provenance.get("id",""),
+        identity.get("people",""),
+        identity.get("merged_observations",""),
+        identity.get("quarantined_people",""),
+        provenance.get("status",""),
+    ]
+
 def export_run(db,rid):
     row=get_run(db,rid)
     if row.status!="completed": raise HTTPException(409,"运行尚未完成")
-    out=io.StringIO(); w=csv.writer(out); w.writerow(["method","n_control","n_treatment","difference","p_value","ci_low","ci_high"])
+    out=io.StringIO(); w=csv.writer(out)
+    w.writerow(["method","n_control","n_treatment","difference","p_value","ci_low","ci_high",
+                "identity_version","identity_version_id","people","merged_observations",
+                "quarantined_people","identity_version_status"])
     for method in ("raw","cuped"):
         result=row.result.get(method)
-        if result: w.writerow([method]+[result[k] for k in ["n_control","n_treatment","difference","p_value","ci_low","ci_high"]])
+        if result: w.writerow([method]+[result[k] for k in ["n_control","n_treatment","difference","p_value","ci_low","ci_high"]]+_identity_columns(row))
+    identity=row.result.get("identity") or {}
+    merged=identity.get("merged_people_detail") or []
+    if merged:
+        w.writerow([])
+        w.writerow(["merged_person","subjects","arm","pre_value","value","identity_version"])
+        for item in merged:
+            w.writerow([item.get("person_key","")," ".join(item.get("subjects") or []),
+                        item.get("arm",""),item.get("pre_value",""),item.get("value",""),
+                        _identity_columns(row)[0]])
+    quarantine=identity.get("quarantine") or []
+    if quarantine:
+        w.writerow([])
+        w.writerow(["quarantined_person","subjects","arms","observations","reason","identity_version"])
+        for item in quarantine:
+            w.writerow([item.get("person_key","")," ".join(item.get("subjects") or []),
+                        " ".join(item.get("arms") or []),item.get("observations",""),item.get("reason",""),
+                        _identity_columns(row)[0]])
     return out.getvalue()

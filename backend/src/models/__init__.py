@@ -5,3 +5,8 @@ from .experiment import Experiment
 from .analysis_run import AnalysisRun
 from .decision import Decision
 from .audit import Audit
+from .identity_link import IdentityLink
+from .identity_version import IdentityVersion
+from .identity_assignment import IdentityAssignment
+from .identity_work_item import IdentityWorkItem
+from .experiment_identity import ExperimentIdentity

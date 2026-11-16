@@ -3,7 +3,8 @@ from sqlalchemy import func
 from src.config.database import SessionLocal,Base,engine
 from src.models import User,Dataset,Observation,Experiment,AnalysisRun
 from src.utils.security import hash_password
-from src.services.statistics_service import analyze
+from src.services.identity_service import ensure_baseline_version,_published,pin_version
+from src.services.analysis_service import run_analysis
 
 def seed():
     Base.metadata.create_all(engine)
@@ -21,12 +22,16 @@ def seed():
             ds=Dataset(name="付费入口 · 11月用户级实验",source="lanqiao-paywall-2026-11.csv",description="2400 位独立随机分桶用户；前置7日收入与后置7日收入，合成可复现数据。",checksum=hashlib.sha256(json.dumps(rows,sort_keys=True).encode()).hexdigest())
             db.add(ds);db.flush()
             db.add_all([Observation(dataset_id=ds.id,**row) for row in rows]);db.flush()
+        ensure_baseline_version(db,ds.id,"seed")
+        version=_published(db,ds.id)
         for name,hyp in [("短文付费入口 v3","以更清晰的阅读价值说明提高每用户7日收入。"),("精选内容预览长度","增加预览长度能提高付费入口收入，需独立新分桶验证。"),("订阅权益说明顺序","将核心权益前置能提高每用户收入，当前复用数据仅作演示。")]:
-            if not db.query(Experiment).filter_by(name=name).first():
+            exp=db.query(Experiment).filter_by(name=name).first()
+            if not exp:
                 exp=Experiment(name=name,dataset_id=ds.id,hypothesis=hyp,owner="许禾 · 数据分析师",alpha=.05,cuped=True)
                 db.add(exp);db.flush()
+                pin_version(db,exp.id,version,"seed")
                 if name=="短文付费入口 v3":
-                    result=analyze(db.query(Observation).filter_by(dataset_id=ds.id).all(),.05,True)
+                    result=run_analysis(db,exp,db.query(Observation).filter_by(dataset_id=ds.id).all())
                     db.add(AnalysisRun(experiment_id=exp.id,status="completed",result=result))
         db.commit()
         print(json.dumps({model.__tablename__:db.query(model).count() for model in [User,Dataset,Observation,Experiment,AnalysisRun]},ensure_ascii=False))

@@ -5,7 +5,7 @@ from sqlalchemy import text
 from .config.database import Base,engine
 from .config.settings import SEED_DEMO
 from . import models
-from .routes import auth,datasets,experiments,runs,decisions,audits
+from .routes import auth,datasets,experiments,runs,decisions,audits,identity
 from .middlewares.errors import ErrorMiddleware
 from .middlewares.rate_limit import RateLimitMiddleware
 from .services.run_service import queue
@@ -21,7 +21,7 @@ async def lifespan(app):
 app=FastAPI(title="岚桥实验放量台",lifespan=lifespan)
 app.add_middleware(ErrorMiddleware)
 app.add_middleware(RateLimitMiddleware)
-for route in [auth,datasets,experiments,runs,decisions,audits]: app.include_router(route.router)
+for route in [auth,datasets,experiments,runs,decisions,audits,identity]: app.include_router(route.router)
 @app.get("/health")
 def health():
     with engine.connect() as conn: conn.execute(text("select 1"))
